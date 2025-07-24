@@ -182,6 +182,163 @@ async def main():
         runner.logger.info("Starting simulation (console mode)")
         await runner.run_simulation(args.steps)
     
+    # Save comprehensive simulation data if any content was created
+    if runner.model and (runner.model.essays or runner.model.critiques or runner.model.schedule.agents):
+        import os
+        import json
+        from datetime import datetime
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_dir = f"output_{timestamp}"
+        os.makedirs(output_dir, exist_ok=True)
+        os.makedirs(f"{output_dir}/essays", exist_ok=True)
+        os.makedirs(f"{output_dir}/critiques", exist_ok=True)
+        
+        runner.logger.info(f"Saving comprehensive simulation data to {output_dir}/")
+        
+        # 1. Save agent information
+        with open(f"{output_dir}/agents.txt", "w") as f:
+            f.write("PHILOSOPHER AGENTS\n")
+            f.write("==================\n\n")
+            for agent in runner.model.schedule.agents:
+                f.write(f"Agent ID: {agent.unique_id}\n")
+                f.write(f"Persona: {agent.persona}\n")
+                f.write(f"Influence Score: {agent.influence:.3f}\n")
+                f.write(f"School: {agent.school_id or 'None'}\n")
+                f.write(f"Birth Tick: {agent.birth_tick}\n")
+                f.write(f"Last Activity: {agent.last_activity_tick}\n")
+                f.write(f"Essays Written: {len(agent.essays_written)}\n")
+                f.write(f"Critiques Written: {len(agent.critiques_written)}\n")
+                f.write(f"Critiques Received: {len(agent.critiques_received)}\n")
+                f.write(f"Citation Count: {agent.citation_count}\n")
+                f.write(f"Belief Vector (first 10): {agent.belief_vector[:10].round(3).tolist()}\n")
+                f.write("-" * 50 + "\n\n")
+        
+        # 2. Save essays with full context
+        for i, (essay_id, essay) in enumerate(runner.model.essays.items(), 1):
+            # Find author persona
+            author_persona = "Unknown"
+            for agent in runner.model.schedule.agents:
+                if str(agent.unique_id) == essay.author_id:
+                    author_persona = agent.persona
+                    break
+            
+            with open(f"{output_dir}/essays/essay_{i:02d}.txt", "w") as f:
+                f.write(f"ESSAY #{i}\n")
+                f.write("=" * 50 + "\n")
+                f.write(f"Essay ID: {essay.id}\n")
+                f.write(f"Author ID: {essay.author_id}\n")
+                f.write(f"Author Persona: {author_persona}\n")
+                f.write(f"Timestamp: {essay.timestamp}\n")
+                f.write(f"Topic: {essay.topic}\n")
+                f.write(f"Quality Score: {essay.quality_score:.3f}\n")
+                f.write(f"Novelty Score: {essay.novelty_score:.3f}\n")
+                f.write(f"Citation Count: {essay.citation_count}\n")
+                f.write(f"Author Influence: {essay.author_influence:.3f}\n")
+                f.write(f"Citations: {essay.citations}\n")
+                f.write(f"Belief Context (first 10): {essay.belief_context[:10].round(3).tolist()}\n")
+                f.write("=" * 50 + "\n\n")
+                f.write(essay.text or "No text generated")
+        
+        # 3. Save critiques with full context
+        for i, (critique_id, critique) in enumerate(runner.model.critiques.items(), 1):
+            # Find critic and target personas  
+            critic_persona = "Unknown"
+            target_essay = runner.model.essays.get(critique.target_id)
+            target_persona = "Unknown"
+            target_topic = "Unknown"
+            
+            for agent in runner.model.schedule.agents:
+                if str(agent.unique_id) == critique.critic_id:
+                    critic_persona = agent.persona
+                if target_essay and str(agent.unique_id) == target_essay.author_id:
+                    target_persona = agent.persona
+                    
+            if target_essay:
+                target_topic = target_essay.topic
+            
+            with open(f"{output_dir}/critiques/critique_{i:02d}.txt", "w") as f:
+                f.write(f"CRITIQUE #{i}\n")
+                f.write("=" * 50 + "\n")
+                f.write(f"Critique ID: {critique.id}\n")
+                f.write(f"Critic ID: {critique.critic_id}\n")
+                f.write(f"Critic Persona: {critic_persona}\n")
+                f.write(f"Target Essay ID: {critique.target_id}\n")
+                f.write(f"Target Author Persona: {target_persona}\n")
+                f.write(f"Target Topic: {target_topic}\n")
+                f.write(f"Stance: {'Positive' if critique.stance > 0 else 'Negative'} ({critique.stance})\n")
+                f.write(f"Timestamp: {critique.timestamp}\n")
+                f.write(f"Persuasiveness Score: {critique.persuasiveness_score:.3f}\n")
+                f.write(f"Belief Context (first 10): {critique.belief_context[:10].round(3).tolist()}\n")
+                f.write("=" * 50 + "\n\n")
+                f.write(critique.text or "No text generated")
+        
+        # 4. Save relationships and citations
+        with open(f"{output_dir}/relationships.txt", "w") as f:
+            f.write("CITATION NETWORK & RELATIONSHIPS\n")
+            f.write("=================================\n\n")
+            
+            f.write("CITATIONS:\n")
+            f.write("-" * 20 + "\n")
+            for essay_id, essay in runner.model.essays.items():
+                if essay.citations:
+                    author_persona = "Unknown"
+                    for agent in runner.model.schedule.agents:
+                        if str(agent.unique_id) == essay.author_id:
+                            author_persona = agent.persona
+                            break
+                    f.write(f"{author_persona} (Essay {essay_id[:8]}) cites: {essay.citations}\n")
+            
+            f.write("\nCRITIQUE RELATIONSHIPS:\n")
+            f.write("-" * 20 + "\n")
+            for critique_id, critique in runner.model.critiques.items():
+                critic_persona = target_persona = "Unknown"
+                for agent in runner.model.schedule.agents:
+                    if str(agent.unique_id) == critique.critic_id:
+                        critic_persona = agent.persona
+                target_essay = runner.model.essays.get(critique.target_id)
+                if target_essay:
+                    for agent in runner.model.schedule.agents:
+                        if str(agent.unique_id) == target_essay.author_id:
+                            target_persona = agent.persona
+                            break
+                stance_word = "supports" if critique.stance > 0 else "criticizes"
+                f.write(f"{critic_persona} {stance_word} {target_persona}'s essay\n")
+        
+        # 5. Save analysis and statistics
+        with open(f"{output_dir}/analysis.txt", "w") as f:
+            f.write("SIMULATION ANALYSIS\n")
+            f.write("===================\n\n")
+            f.write(f"Total Agents: {len(runner.model.schedule.agents)}\n")
+            f.write(f"Total Essays: {len(runner.model.essays)}\n")
+            f.write(f"Total Critiques: {len(runner.model.critiques)}\n")
+            f.write(f"Total Schools: {len(runner.model.schools)}\n\n")
+            
+            if runner.model.essays:
+                qualities = [e.quality_score for e in runner.model.essays.values()]
+                novelties = [e.novelty_score for e in runner.model.essays.values()]
+                f.write(f"Average Essay Quality: {sum(qualities)/len(qualities):.3f}\n")
+                f.write(f"Average Essay Novelty: {sum(novelties)/len(novelties):.3f}\n")
+            
+            if runner.model.critiques:
+                persuasiveness = [c.persuasiveness_score for c in runner.model.critiques.values()]
+                f.write(f"Average Critique Persuasiveness: {sum(persuasiveness)/len(persuasiveness):.3f}\n")
+            
+            f.write("\nPHILOSOPHER PRODUCTIVITY:\n")
+            f.write("-" * 25 + "\n")
+            for agent in sorted(runner.model.schedule.agents, key=lambda a: len(a.essays_written), reverse=True):
+                f.write(f"{agent.persona:15} - {len(agent.essays_written)} essays, {len(agent.critiques_written)} critiques, influence {agent.influence:.3f}\n")
+            
+            f.write("\nTOPIC DISTRIBUTION:\n")
+            f.write("-" * 18 + "\n")
+            topics = {}
+            for essay in runner.model.essays.values():
+                topics[essay.topic] = topics.get(essay.topic, 0) + 1
+            for topic, count in sorted(topics.items(), key=lambda x: x[1], reverse=True):
+                f.write(f"{topic:20} - {count} essays\n")
+        
+        runner.logger.info(f"Saved complete analysis with {len(runner.model.essays)} essays and {len(runner.model.critiques)} critiques")
+    
     # Cleanup
     if runner.db_manager:
         runner.db_manager.close()

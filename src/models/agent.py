@@ -6,8 +6,8 @@ import uuid
 
 
 class PhilosopherAgent(Agent):
-    def __init__(self, unique_id: str, model, persona: str, belief_vector_dim: int = 50):
-        super().__init__(unique_id, model)
+    def __init__(self, model, persona: str, belief_vector_dim: int = 50):
+        super().__init__(model)
         self.persona = persona
         self.belief_vector = np.random.normal(0, 1, belief_vector_dim)
         self.influence = 1.0
@@ -54,7 +54,7 @@ class PhilosopherAgent(Agent):
         essay_id = str(uuid.uuid4())
         essay = Essay(
             id=essay_id,
-            author_id=self.unique_id,
+            author_id=str(self.unique_id),
             timestamp=self.model.schedule.time,
             topic=topic,
             citations=citations,
@@ -98,7 +98,7 @@ class PhilosopherAgent(Agent):
         
         critique = Critique(
             id=critique_id,
-            critic_id=self.unique_id,
+            critic_id=str(self.unique_id),
             target_id=target_essay.id,
             stance=stance,
             timestamp=self.model.schedule.time,
@@ -128,7 +128,7 @@ class PhilosopherAgent(Agent):
         return np.random.choice(topics, p=weights)
     
     def select_citations(self) -> List[str]:
-        available_essays = self.model.get_available_essays(exclude_author=self.unique_id)
+        available_essays = self.model.get_available_essays(exclude_author=str(self.unique_id))
         if not available_essays:
             return []
         
@@ -142,7 +142,7 @@ class PhilosopherAgent(Agent):
         return [essay.id for essay in selected]
     
     def select_essay_to_critique(self):
-        available_essays = self.model.get_available_essays(exclude_author=self.unique_id)
+        available_essays = self.model.get_available_essays(exclude_author=str(self.unique_id))
         if not available_essays:
             return None
         
@@ -167,7 +167,7 @@ class PhilosopherAgent(Agent):
     
     def to_dict(self) -> Dict[str, Any]:
         return {
-            'id': self.unique_id,
+            'id': str(self.unique_id),
             'persona': self.persona,
             'belief_vector': self.belief_vector.tolist(),
             'influence': self.influence,

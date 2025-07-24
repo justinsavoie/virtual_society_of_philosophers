@@ -65,10 +65,9 @@ class PhilosopherModel(mesa.Model):
         ]
         
         for i in range(self.n_agents):
-            agent_id = str(uuid.uuid4())
             persona = personas[i % len(personas)]
             
-            agent = PhilosopherAgent(agent_id, self, persona, self.belief_vector_dim)
+            agent = PhilosopherAgent(self, persona, self.belief_vector_dim)
             self.schedule.add(agent)
             
             if self.db_manager:
@@ -123,8 +122,11 @@ class PhilosopherModel(mesa.Model):
         if not target_essay:
             return
         
-        critic = self.schedule._agents.get(critique.critic_id)
-        target_author = self.schedule._agents.get(target_essay.author_id)
+        critic_candidates = self.schedule.agents.select(lambda agent: agent.unique_id == int(critique.critic_id))
+        target_author_candidates = self.schedule.agents.select(lambda agent: agent.unique_id == int(target_essay.author_id))
+        
+        critic = critic_candidates[0] if critic_candidates else None
+        target_author = target_author_candidates[0] if target_author_candidates else None
         
         if not critic or not target_author:
             return
@@ -145,13 +147,13 @@ class PhilosopherModel(mesa.Model):
             base_decay = -0.01
             
             recent_essays = [e for e in self.essays.values() 
-                           if e.author_id == agent.unique_id and 
+                           if e.author_id == str(agent.unique_id) and 
                            self.schedule.time - e.timestamp <= 6]
             
             citation_bonus = sum(e.citation_count * 0.02 for e in recent_essays)
             
             recent_critiques = [c for c in self.critiques.values() 
-                              if c.critic_id == agent.unique_id and 
+                              if c.critic_id == str(agent.unique_id) and 
                               self.schedule.time - c.timestamp <= 6]
             
             critique_bonus = sum(c.persuasiveness_score * 0.01 for c in recent_critiques)
@@ -160,7 +162,7 @@ class PhilosopherModel(mesa.Model):
             agent.update_influence(total_change)
             
             if self.db_manager:
-                self.db_manager.update_agent_influence(agent.unique_id, agent.influence)
+                self.db_manager.update_agent_influence(str(agent.unique_id), agent.influence)
     
     def _detect_and_update_schools(self):
         if len(self.schedule.agents) < 3:
@@ -169,7 +171,7 @@ class PhilosopherModel(mesa.Model):
         citation_network = self._build_citation_network()
         school_clusters = self.school_detector.detect_schools(
             citation_network, 
-            {agent.unique_id: agent.belief_vector for agent in self.schedule.agents}
+            {str(agent.unique_id): agent.belief_vector for agent in self.schedule.agents}
         )
         
         existing_schools = set(self.schools.keys())
@@ -181,8 +183,11 @@ class PhilosopherModel(mesa.Model):
                 new_schools.add(school_id)
                 
                 if school_id not in self.schools:
-                    member_beliefs = [self.schedule._agents[mid].belief_vector 
-                                    for mid in member_ids if mid in self.schedule._agents]
+                    member_beliefs = []
+                    for mid in member_ids:
+                        agent_candidates = self.schedule.agents.select(lambda agent: agent.unique_id == int(mid))
+                        if agent_candidates:
+                            member_beliefs.append(agent_candidates[0].belief_vector)
                     
                     school = School(
                         id=school_id,
@@ -199,8 +204,9 @@ class PhilosopherModel(mesa.Model):
                         self.db_manager.create_school(school.to_dict())
                 
                 for member_id in member_ids:
-                    if member_id in self.schedule._agents:
-                        agent = self.schedule._agents[member_id]
+                    agent_candidates = self.schedule.agents.select(lambda agent: agent.unique_id == int(member_id))
+                    if agent_candidates:
+                        agent = agent_candidates[0]
                         if agent.school_id != school_id:
                             agent.school_id = school_id
                             if self.db_manager:
@@ -234,10 +240,9 @@ class PhilosopherModel(mesa.Model):
         if high_influence_agents and len(self.schedule.agents) < self.n_agents * 1.5:
             parent = np.random.choice(high_influence_agents)
             
-            child_id = str(uuid.uuid4())
             child_persona = parent.persona + "_descendant"
             
-            child = PhilosopherAgent(child_id, self, child_persona, self.belief_vector_dim)
+            child = PhilosopherAgent(self, child_persona, self.belief_vector_dim)
             
             mutation_strength = 0.3
             child.belief_vector = parent.belief_vector + np.random.normal(0, mutation_strength, self.belief_vector_dim)

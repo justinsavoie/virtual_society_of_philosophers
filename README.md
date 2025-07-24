@@ -91,17 +91,22 @@ cd virtual_society_of_philosophers
 pip install -r requirements.txt
 ```
 
-3. **Configure environment** (copy and edit):
+3. **Configure environment** (create `.env` file):
 ```bash
-cp .env.example .env
-```
-
-Edit `.env` with your credentials:
-```env
+# Create .env file with your configuration
+cat > .env << 'EOF'
 OPENAI_API_KEY=your_openai_api_key_here
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
 NEO4J_PASSWORD=your_neo4j_password
+
+# Optional: Customize simulation parameters
+DEFAULT_N_AGENTS=20
+BELIEF_VECTOR_DIM=50
+MAX_SIMULATION_STEPS=360
+DASHBOARD_HOST=127.0.0.1
+DASHBOARD_PORT=8000
+EOF
 ```
 
 4. **Start Neo4j** (if using database persistence):
@@ -118,9 +123,23 @@ Run a console-based simulation with 20 agents for 360 steps (30 simulated years)
 python main.py
 ```
 
+**Example Output:**
+```
+INFO - Initializing simulation with 20 agents
+INFO - Running without LLM integration - using placeholder text
+INFO - Year 0: 20 agents, 0 essays, 0 schools
+INFO - Year 1: 19 agents, 13 essays, 0 schools
+INFO - Year 2: 18 agents, 25 essays, 2 schools
+INFO - Saving comprehensive simulation data to output_20250724_001253/
+```
+
 ### Custom Parameters
 ```bash
+# Run with 50 agents for 60 simulated years with dashboard
 python main.py --agents 50 --steps 720 --dashboard
+
+# Quick test with 10 agents for 10 years without LLM
+python main.py --agents 10 --steps 120 --no-llm
 ```
 
 ### Dashboard Mode
@@ -131,12 +150,13 @@ python main.py --dashboard
 Visit `http://localhost:8000` for the interactive dashboard.
 
 ### Without LLM (Faster Testing)
+Use placeholder text instead of OpenAI for rapid testing:
 ```bash
 python main.py --no-llm --agents 10 --steps 120
 ```
 
 ### Dashboard Only
-Run just the visualization server:
+Run just the visualization server for existing data:
 ```bash
 python main.py --dashboard-only
 ```
@@ -179,7 +199,68 @@ python main.py --dashboard-only
 
 ## Data Output
 
-### Neo4j Graph Structure
+The simulation automatically creates timestamped output directories containing comprehensive analysis data:
+
+### Output Structure
+```
+output_20250724_001253/
+├── agents.txt           # Complete agent profiles and statistics
+├── analysis.txt         # Simulation summary and metrics
+├── relationships.txt    # Citation networks and critique patterns
+├── essays/             # Individual philosophical essays
+│   ├── essay_01.txt    # Full essay with metadata
+│   └── essay_02.txt
+└── critiques/          # Detailed critiques with context
+    ├── critique_01.txt
+    └── critique_02.txt
+```
+
+### Example Analysis Output
+```
+SIMULATION ANALYSIS
+===================
+
+Total Agents: 9
+Total Essays: 13
+Total Critiques: 14
+Total Schools: 0
+
+Average Essay Quality: 0.769
+Average Essay Novelty: 0.731
+Average Critique Persuasiveness: 0.572
+
+PHILOSOPHER PRODUCTIVITY:
+-------------------------
+Nietzschean     - 2 essays, 1 critiques, influence 0.680
+Stoic           - 2 essays, 4 critiques, influence 0.834
+Aristotelian    - 2 essays, 2 critiques, influence 0.598
+
+TOPIC DISTRIBUTION:
+------------------
+ethics               - 4 essays
+political_philosophy - 4 essays
+philosophy_of_mind   - 2 essays
+```
+
+### Sample Essay Output
+```
+ESSAY #1
+==================================================
+Essay ID: 8dcb3102-4b8e-430f-b142-1acff262e6fe
+Author ID: 4
+Author Persona: Nietzschean
+Topic: ethics
+Quality Score: 0.700
+Novelty Score: 0.800
+
+### The Will to Power: An Ethical Reassessment in a Post-Metaphysical Age
+
+In the shadow of a crumbling metaphysical edifice, our traditional 
+ethical frameworks—steeped in absolutism and grounded in transcendent 
+moral truths—must be rigorously interrogated...
+```
+
+### Neo4j Graph Structure (if enabled)
 - **Nodes**: Agents, Essays, Critiques, Schools
 - **Relationships**: WROTE, CITES, CRITIQUES, BELONGS_TO
 - **Properties**: Belief vectors, influence scores, timestamps, quality metrics
@@ -205,17 +286,19 @@ RETURN s.id, collect(a.persona) as members, s.manifesto
 
 ### Scaling Guidelines
 
-| Agents | Compute Strategy | Expected Performance |
-|--------|------------------|----------------------|
-| 10-20 | Local CPU + 7B model | Real-time simulation |
-| 100-300 | GPU acceleration + batching | Minutes per simulated year |
-| 1000+ | Distributed processing + model sharding | Research cluster recommended |
+| Agents | Mode | Expected Performance | Use Case |
+|--------|------|---------------------|----------|
+| 10-20 | `--no-llm` | Seconds per year | Algorithm testing |
+| 10-20 | With OpenAI API | ~30 seconds per year | Full simulation |
+| 50+ | `--no-llm` | Minutes per year | Large-scale patterns |
+| 50+ | With LLM | Hours per year | Research-grade runs |
 
 ### Optimization Tips
-- Use `--no-llm` for rapid prototyping and algorithm testing
-- Reduce belief vector dimensionality for faster clustering
-- Implement essay summarization for large-scale simulations
-- Archive old essays to manage context length
+- **Use `--no-llm`** for rapid prototyping and algorithm testing
+- **Start small**: Begin with 10 agents, 120 steps to understand behavior
+- **Monitor resources**: Neo4j and OpenAI API calls can be rate-limited
+- **Batch processing**: Dashboard updates only every 6 months (configurable)
+- **Data persistence**: Disable Neo4j for pure algorithmic testing
 
 ## Research Applications
 
@@ -244,30 +327,52 @@ This simulation enables investigation of:
 ## Extending the System
 
 ### Adding New Agent Types
+Extend the base `PhilosopherAgent` class in `src/models/agent.py`:
 ```python
+from src.models.agent import PhilosopherAgent
+
 class FeministPhilosopher(PhilosopherAgent):
+    def __init__(self, unique_id, model):
+        super().__init__(unique_id, model)
+        self.persona = "Feminist"
+        # Bias towards specific topics
+        self.topic_preferences = {
+            "ethics": 0.8,
+            "political_philosophy": 0.9,
+            "feminist_theory": 1.0
+        }
+    
     def select_topic(self):
-        # Override to emphasize gender and ethics topics
-        topics = ["ethics", "political_philosophy", "feminist_theory"]
-        # ... custom logic
+        # Custom topic selection logic
+        return max(self.topic_preferences.items(), key=lambda x: x[1])[0]
 ```
 
-### Custom Evaluation Metrics
+### Custom Configuration
+Modify simulation parameters via environment variables or `src/utils/config.py`:
 ```python
-def evaluate_intersectionality(essay_text: str) -> float:
-    # Custom scoring for intersectional analysis
-    pass
+# In your .env file
+DEFAULT_N_AGENTS=30
+BELIEF_VECTOR_DIM=100
+MAX_SIMULATION_STEPS=720
 
-# Register with the model
-model.llm_wrapper.custom_evaluators['intersectionality'] = evaluate_intersectionality
+# Or programmatically
+from src.utils.config import Config
+Config.DEFAULT_N_AGENTS = 50
 ```
 
 ### Alternative School Detection
+Replace the default detector in `src/simulation/school_detector.py`:
 ```python
 class TopicBasedSchoolDetector(SchoolDetector):
-    def detect_schools(self, citation_network, belief_vectors):
-        # Group by dominant topics instead of citation patterns
-        pass
+    def detect_schools(self, agents):
+        # Group agents by dominant research topics
+        topic_groups = {}
+        for agent in agents:
+            main_topic = agent.get_dominant_topic()
+            if main_topic not in topic_groups:
+                topic_groups[main_topic] = []
+            topic_groups[main_topic].append(agent)
+        return topic_groups
 ```
 
 ## Contributing
@@ -305,25 +410,43 @@ docker ps
 
 # Verify credentials in .env file
 cat .env | grep NEO4J
+
+# The system will continue without database if Neo4j fails
+# Look for: "WARNING - Neo4j not configured, running without database persistence"
 ```
 
 **OpenAI API Errors**
 ```bash
-# Verify API key
+# Verify API key is set
 echo $OPENAI_API_KEY
 
-# Check rate limits and billing status
+# Test with --no-llm flag first
+python main.py --no-llm --agents 5 --steps 60
+
+# Check rate limits in OpenAI dashboard
 ```
 
-**Memory Issues with Large Simulations**
-- Reduce agent count or belief vector dimensions
-- Enable essay archiving after N ticks
-- Use `--no-llm` mode for algorithm testing
+**Simulation Runs But No Output Generated**
+- Ensure you have write permissions in the directory
+- Check logs for errors: `tail -f simulation_*.log`
+- Try shorter simulation: `python main.py --agents 5 --steps 60`
 
-**Slow School Detection**
-- Reduce clustering frequency (modify code to run every 12 ticks instead of 6)
-- Tune DBSCAN parameters for faster convergence
-- Use approximate clustering algorithms for >500 agents
+**Memory Issues with Large Simulations**
+- Start with `--no-llm` and 10 agents to test
+- Reduce `BELIEF_VECTOR_DIM` in `.env` (default: 50)
+- Monitor memory usage: essays and critiques accumulate
+
+**Dependencies Issues**
+```bash
+# Ensure Python 3.8+
+python --version
+
+# Install specific versions from requirements.txt
+pip install -r requirements.txt
+
+# If conflicts, try fresh virtual environment
+python -m venv venv && source venv/bin/activate
+```
 
 ## License
 

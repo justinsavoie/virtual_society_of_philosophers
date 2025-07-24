@@ -57,6 +57,9 @@ instructions.txt
 ehthumbs.db
 Thumbs.db
 
+# Output directories
+output_*/
+
 # Logs
 *.log
 simulation_*.log
